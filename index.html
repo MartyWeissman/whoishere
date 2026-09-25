@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WhoIsHere</title>
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="WhoIsHere">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root { --ink:#111; --ink-soft:#333; --muted:#666; --line:#e5e5e5; --paper:#fff; --wash:#f7f7f6;
+          --accent:#11aa66; --accent-ink:#0c7d4b; --warn:#b86a0c; --danger:#c62f2f; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; background:var(--paper); color:var(--ink);
+    font-family:-apple-system, system-ui, "Segoe UI", Roboto, sans-serif; line-height:1.5; }
+  main { max-width:440px; margin:0 auto; padding:max(24px, env(safe-area-inset-top)) 24px 32px;
+         min-height:100vh; display:flex; flex-direction:column; }
+  .brand { font-weight:700; font-size:1.25rem; margin:8px 0 28px; }
+  .brand b { color:var(--accent-ink); }
+  h1 { font-size:1.5rem; margin:0 0 .5rem; }
+  p { margin:0 0 1rem; }
+  .muted { color:var(--muted); }
+  .small { font-size:.85rem; }
+  label { display:block; font-size:.9rem; color:var(--ink-soft); margin:1rem 0 .3rem; }
+  input { width:100%; font-size:1.25rem; padding:.7rem .8rem; border:1px solid #ccc; border-radius:8px;
+          font-family:ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.05em; }
+  input:focus { outline:2px solid var(--accent); outline-offset:1px; border-color:transparent; }
+  button { font:inherit; cursor:pointer; }
+  .primary { display:block; width:100%; margin-top:1.5rem; padding:1rem; font-size:1.15rem; font-weight:600;
+             border:0; border-radius:12px; background:var(--ink); color:#fff; min-height:56px; }
+  .primary:active { transform:translateY(1px); }
+  .primary:disabled { opacity:.5; }
+  .link { background:none; border:0; color:var(--muted); text-decoration:underline; padding:.5rem 0; font-size:.9rem; }
+  .err { color:var(--danger); font-size:.9rem; min-height:1.4em; margin-top:.5rem; }
+  .spacer { flex:1; }
+  .result { text-align:center; padding:28px 0 8px; }
+  .result .big { font-size:2.2rem; font-weight:700; margin:.25rem 0; }
+  .result.ok .big { color:var(--accent-ink); }
+  .result.warn .big { color:var(--warn); }
+  .result.bad .big { color:var(--danger); }
+  .tip { background:var(--wash); border:1px solid var(--line); border-radius:8px; padding:12px 14px;
+         font-size:.9rem; color:var(--ink-soft); margin-top:1rem; }
+  .who { font-size:.9rem; color:var(--muted); margin-top:.75rem; text-align:center; }
+  .recent { margin-top:28px; font-size:.85rem; color:var(--muted); }
+  .recent div { display:flex; justify-content:space-between; border-top:1px solid var(--line); padding:6px 0; }
+  /* Scanner */
+  #scanner { position:fixed; inset:0; background:#000; display:none; z-index:10; }
+  #scanner video { width:100%; height:100%; object-fit:cover; }
+  #scanner .frame { position:absolute; left:50%; top:45%; width:min(70vw, 320px); aspect-ratio:1;
+                    transform:translate(-50%,-50%); border:3px solid rgba(255,255,255,.9); border-radius:16px;
+                    box-shadow:0 0 0 100vmax rgba(0,0,0,.35); }
+  #scanner .hint { position:absolute; left:0; right:0; top:max(24px, env(safe-area-inset-top)); text-align:center;
+                   color:#fff; font-weight:600; font-size:1.05rem; padding:0 24px; }
+  #scanner .cancel { position:absolute; left:50%; bottom:max(32px, env(safe-area-inset-bottom)); transform:translateX(-50%);
+                     background:rgba(255,255,255,.95); color:#111; border:0; border-radius:999px; padding:.8rem 2rem; font-weight:600; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">Who<b>Is</b>Here</div>
+
+  <!-- One-time setup -->
+  <section id="setup" hidden>
+    <h1>One-time setup</h1>
+    <p class="muted">Your ID never leaves this phone. It's turned into a scrambled code before anything is sent.</p>
+    <form id="setupForm" autocomplete="off">
+      <label for="id1" id="idLabel">Student ID</label>
+      <input id="id1" inputmode="numeric" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+      <label for="id2">Type it again</label>
+      <input id="id2" inputmode="numeric" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+      <div id="setupErr" class="err"></div>
+      <button class="primary" type="submit">Save</button>
+    </form>
+    <p class="small muted" id="idHint" style="margin-top:1rem"></p>
+  </section>
+
+  <!-- Home -->
+  <section id="home" hidden>
+    <div id="result" class="result" hidden>
+      <div id="resultIcon" aria-hidden="true" style="font-size:2.6rem"></div>
+      <div id="resultBig" class="big"></div>
+      <div id="resultSmall" class="muted"></div>
+    </div>
+    <button id="scanBtn" class="primary">Scan to mark present</button>
+    <div id="scanErr" class="err" style="text-align:center"></div>
+    <div id="linkTip" class="tip" hidden>
+      <b>Next time:</b> open WhoIsHere from your home screen and tap <b>Scan</b>. Check-ins that come
+      through your phone's camera app (a link) are marked for your instructor to review.
+    </div>
+    <div id="installTip" class="tip" hidden></div>
+    <div class="spacer"></div>
+    <div id="recent" class="recent"></div>
+    <div class="who">
+      <span id="whoText"></span> ·
+      <button class="link" id="changeId">Change ID</button>
+    </div>
+  </section>
+</main>
+
+<div id="scanner">
+  <video id="video" playsinline muted></video>
+  <div class="frame"></div>
+  <div class="hint">Point at the “Who is here?” code on the screen</div>
+  <button class="cancel" id="cancelScan">Cancel</button>
+</div>
+<canvas id="canvas" hidden></canvas>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script src="vendor/jsQR.js" defer></script>
+<script>
+(function () {
+  const C = window.WIH_CONFIG, W = window.WIH, S = W.store;
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- state ----------
+  let studentId = S.get("wih.id", null);           // normalized ID, stored only on this phone
+  let device = S.get("wih.device", null);           // random per-install id (flags one phone checking in many)
+  if (!device) { device = crypto.getRandomValues(new Uint32Array(4)).join("-").slice(0, 40); S.set("wih.device", device); }
+  let queue = S.get("wih.queue", []);               // check-ins, newest first (pending + recent results)
+
+  $("idLabel").textContent = C.ID_LABEL || "Student ID";
+  $("idHint").textContent = C.ID_HINT || "";
+
+  // ---------- incoming link from the phone's camera app ----------
+  let incoming = null;
+  if (location.hash) {
+    incoming = W.parseCheckinUrl(location.href);
+    // Strip the code from the address bar so reloading/sharing it does nothing.
+    history.replaceState(null, "", location.pathname + location.search);
+  }
+
+  // ---------- screens ----------
+  function show(which) {
+    $("setup").hidden = which !== "setup";
+    $("home").hidden = which !== "home";
+    if (which === "setup") setTimeout(() => $("id1").focus(), 50);
+    if (which === "home") renderHome();
+  }
+  function renderHome() {
+    const masked = studentId.length > 3 ? "•••" + studentId.slice(-3) : studentId;
+    $("whoText").textContent = "Checking in as " + masked;
+    const done = queue.length > 0;
+    const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+    const tip = $("installTip");
+    if (!standalone && done) {
+      const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+      tip.innerHTML = ios
+        ? "<b>Add WhoIsHere to your home screen:</b> tap the Share button, then “Add to Home Screen.”"
+        : "<b>Add WhoIsHere to your home screen:</b> open the browser menu (⋮), then “Add to Home screen” or “Install app.”";
+      tip.hidden = false;
+    } else tip.hidden = true;
+    renderRecent();
+  }
+  const LABEL = { ok: "Present", flagged: "Recorded (for review)", duplicate: "Already marked",
+                  rejected: "Not accepted", pending: "Waiting to send" };
+  function renderRecent() {
+    const el = $("recent");
+    const rows = queue.slice(0, 5);
+    el.innerHTML = rows.length ? "<div style='border:0'><span>Recent</span></div>" : "";
+    for (const r of rows) {
+      const d = document.createElement("div");
+      const t = new Date(r.scanned_at);
+      d.innerHTML = "<span></span><span></span>";
+      d.children[0].textContent = t.toLocaleDateString([], { month: "short", day: "numeric" }) + " " +
+        t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      d.children[1].textContent = LABEL[r.status] || r.status;
+      el.appendChild(d);
+    }
+  }
+  function showResult(kind, icon, big, small) {
+    $("result").hidden = false;
+    $("result").className = "result " + kind;
+    $("resultIcon").textContent = icon;
+    $("resultBig").textContent = big;
+    $("resultSmall").textContent = small || "";
+  }
+  function showRecord(r) {
+    if (r.status === "ok") showResult("ok", "✓", "Present", "You're checked in. Phone away!");
+    else if (r.status === "pending") showResult("ok", "✓", "Present", "Saved on your phone — it'll send automatically when you're online.");
+    else if (r.status === "flagged") showResult("warn", "✓", "Recorded", "Your check-in was saved and marked for your instructor to review.");
+    else if (r.status === "duplicate") showResult("ok", "✓", "Already marked", "You're already checked in for this class.");
+    else showResult("bad", "✕", "Not accepted", r.reason === "unknown_session"
+      ? "That code isn't an active WhoIsHere session." : "Something was wrong with that code. Ask your instructor.");
+  }
+
+  // ---------- setup ----------
+  $("setupForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const a = W.normalizeId($("id1").value), b = W.normalizeId($("id2").value);
+    if (a.length < 3) { $("setupErr").textContent = "That looks too short."; return; }
+    if (a !== b) { $("setupErr").textContent = "Those don't match. Please try again."; return; }
+    studentId = a; S.set("wih.id", a);
+    $("setupErr").textContent = "";
+    show("home");
+    if (incoming) { const x = incoming; incoming = null; record(x.code, x.key, "link", true); }
+  });
+  $("changeId").addEventListener("click", () => {
+    $("id1").value = ""; $("id2").value = "";
+    show("setup");
+  });
+
+  // ---------- recording + sending ----------
+  async function record(code, key, via, isFirstSetup) {
+    $("scanErr").textContent = "";
+    const existing = queue.find((r) => r.code === code && r.id === studentId && r.status !== "rejected");
+    if (existing) { showRecord(existing.status === "pending" ? existing : { status: "duplicate" }); return; }
+    const r = {
+      code, via, id: studentId, status: "pending",
+      pseudonym: await W.pseudonym(key, studentId),
+      scanned_at: new Date().toISOString(),
+    };
+    queue.unshift(r);
+    queue = queue.slice(0, 50);
+    S.set("wih.queue", queue);
+    // Returning students who used the camera-app link get a nudge toward the in-app scanner.
+    $("linkTip").hidden = !(via === "link" && !isFirstSetup);
+    showRecord(r);
+    renderHome();
+    flush();
+  }
+
+  let flushing = false;
+  async function flush() {
+    if (flushing) return;
+    flushing = true;
+    try {
+      for (const r of queue.filter((q) => q.status === "pending")) {
+        let res;
+        try {
+          const resp = await fetch(C.SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/rpc/check_in", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "apikey": C.SUPABASE_KEY },
+            body: JSON.stringify({ p_code: r.code, p_pseudonym: r.pseudonym, p_device: device,
+                                   p_scanned_at: r.scanned_at, p_via: r.via }),
+          });
+          if (!resp.ok) continue;          // server trouble: keep it and try again later
+          res = await resp.json();
+        } catch (e) { break; }             // offline: stop and wait for the next chance
+        r.status = res.status || "pending";
+        if (res.reason) r.reason = res.reason;
+        S.set("wih.queue", queue);
+        if (r === queue[0] && !$("home").hidden) showRecord(r);
+      }
+    } finally {
+      flushing = false;
+      if (!$("home").hidden) renderRecent();
+    }
+  }
+  window.addEventListener("online", flush);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) flush(); });
+  setInterval(() => { if (queue.some((q) => q.status === "pending")) flush(); }, 15000);
+
+  // ---------- scanner (live camera only; no photo uploads) ----------
+  let stream = null, raf = 0;
+  async function startScan() {
+    $("scanErr").textContent = "";
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      $("scanErr").textContent = "This browser can't use the camera. Try Safari (iPhone) or Chrome (Android)."; return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    } catch (e) {
+      $("scanErr").textContent = e && e.name === "NotAllowedError"
+        ? "Camera access is blocked. Allow the camera for this site in your browser settings, then try again."
+        : "Couldn't start the camera.";
+      return;
+    }
+    const v = $("video");
+    v.srcObject = stream;
+    $("scanner").style.display = "block";
+    await v.play().catch(() => {});
+    const canvas = $("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const tick = () => {
+      if (!stream) return;
+      if (v.readyState >= 2 && v.videoWidth && window.jsQR) {
+        const scale = Math.min(1, 720 / Math.max(v.videoWidth, v.videoHeight));
+        canvas.width = Math.round(v.videoWidth * scale); canvas.height = Math.round(v.videoHeight * scale);
+        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+        const parsed = hit && W.parseCheckinUrl(hit.data);
+        if (parsed) {
+          stopScan();
+          if (navigator.vibrate) navigator.vibrate(60);
+          record(parsed.code, parsed.key, "scan", false);
+          return;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }
+  function stopScan() {
+    cancelAnimationFrame(raf);
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    $("scanner").style.display = "none";
+  }
+  $("scanBtn").addEventListener("click", startScan);
+  $("cancelScan").addEventListener("click", stopScan);
+
+  // ---------- start ----------
+  if (!studentId) show("setup");
+  else {
+    show("home");
+    if (incoming) { const x = incoming; incoming = null; record(x.code, x.key, "link", false); }
+  }
+  flush();
+
+  // If the page is already open and a new link arrives, only the "#..." part changes.
+  window.addEventListener("hashchange", () => {
+    const x = W.parseCheckinUrl(location.href);
+    history.replaceState(null, "", location.pathname + location.search);
+    if (!x) return;
+    if (!studentId) { incoming = x; show("setup"); }
+    else { show("home"); record(x.code, x.key, "link", false); }
+  });
+
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>

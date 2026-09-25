@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WhoIsHere — Instructor</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root { --ink:#111; --ink-soft:#333; --muted:#666; --line:#e5e5e5; --paper:#fff; --wash:#f7f7f6;
+          --accent:#11aa66; --accent-ink:#0c7d4b; --warn:#b86a0c; --warn-bg:#fdf3e4; --danger:#c62f2f; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--wash); color:var(--ink); line-height:1.45;
+         font-family:-apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width:960px; margin:0 auto; padding:24px; }
+  header { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+  .brand { font-weight:700; font-size:1.2rem; margin-right:auto; }
+  .brand b { color:var(--accent-ink); }
+  .card { background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:20px; margin-bottom:16px; }
+  h2 { font-size:1.1rem; margin:0 0 12px; }
+  p { margin:0 0 .75rem; }
+  .muted { color:var(--muted); } .small { font-size:.85rem; }
+  label { font-size:.85rem; color:var(--muted); }
+  input, select { font:inherit; padding:.5rem .6rem; border:1px solid #ccc; border-radius:8px; background:#fff; }
+  input[type=checkbox] { padding:0; }
+  button { font:inherit; cursor:pointer; border-radius:8px; padding:.5rem .9rem; border:1px solid var(--line);
+           background:#fff; color:var(--ink); }
+  button.primary { background:var(--ink); color:#fff; border-color:var(--ink); font-weight:600; border-radius:12px; padding:.75rem 1.2rem; }
+  button.danger { color:var(--danger); }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .grow { flex:1; }
+  .err { color:var(--danger); font-size:.9rem; min-height:1.3em; }
+  .notice { background:var(--warn-bg); border:1px solid #f0d9b5; border-radius:8px; padding:12px 14px; margin-bottom:16px; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-weight:600; color:var(--muted); font-size:.8rem; }
+  tr.sel td { background:#eef7f1; }
+  .pill { display:inline-block; font-size:.75rem; padding:.1rem .5rem; border-radius:999px; background:#f0f0f0; color:var(--muted); margin-right:4px; }
+  .pill.ok { background:#e6f5ed; color:var(--accent-ink); }
+  .pill.flag { background:var(--warn-bg); color:var(--warn); }
+  .pill.open { background:var(--accent); color:#fff; }
+  code { font-family:ui-monospace, Menlo, monospace; font-size:.85em; }
+  .num { font-variant-numeric:tabular-nums; }
+  #login { max-width:380px; margin:10vh auto; }
+  #login input { width:100%; margin:.25rem 0 .75rem; }
+  /* Projector view */
+  #present { position:fixed; inset:0; background:#fff; display:none; flex-direction:column; align-items:center;
+             justify-content:center; z-index:50; padding:2vh 2vw; }
+  #present h1 { font-size:min(8vh, 7vw); margin:0 0 1vh; letter-spacing:-.02em; }
+  #qr { image-rendering:pixelated; }
+  #present .stats { margin-top:2vh; font-size:min(4vh, 3vw); display:flex; gap:4vw; align-items:baseline; }
+  #present .count { font-weight:700; color:var(--accent-ink); }
+  #present .howto { margin-top:1.2vh; font-size:min(2.4vh, 1.8vw); color:var(--ink-soft); text-align:center; }
+  #present .controls { position:fixed; bottom:12px; right:12px; display:flex; gap:8px; opacity:.35; transition:opacity .2s; }
+  #present .controls:hover, #present .controls:focus-within { opacity:1; }
+  #present.closed h1 { color:var(--muted); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+
+<!-- Sign in -->
+<div id="login" class="card" hidden>
+  <div class="brand" style="margin-bottom:16px">Who<b>Is</b>Here <span class="muted small">· instructor</span></div>
+  <form id="loginForm">
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" required>
+    <div id="loginErr" class="err"></div>
+    <button class="primary" type="submit" style="width:100%">Sign in</button>
+  </form>
+</div>
+
+<div id="app" class="wrap" hidden>
+  <header>
+    <div class="brand">Who<b>Is</b>Here <span class="muted small">· instructor</span></div>
+    <select id="courseSel" aria-label="Course"></select>
+    <button id="newCourseBtn">New course</button>
+    <span class="small muted" id="whoami"></span>
+    <button id="signOut">Sign out</button>
+  </header>
+
+  <div id="noCourse" class="card" hidden>
+    <h2>Create your first course</h2>
+    <p class="muted">Click <b>New course</b> above and give it a name, like “MATH 16 Fall 2026.”</p>
+  </div>
+
+  <!-- Course key status -->
+  <div id="keyMissing" class="notice" hidden>
+    <b>This computer doesn't have this course's key yet.</b>
+    <p class="small" style="margin:.4rem 0 .6rem">Open the course setup link you saved (it sets this up automatically), or paste the key:</p>
+    <div class="row">
+      <input id="keyPaste" class="grow" placeholder="Course key (22 characters)" autocomplete="off" spellcheck="false">
+      <button id="keySave">Save key</button>
+    </div>
+    <div id="keyErr" class="err"></div>
+  </div>
+  <div id="keyBackup" class="notice" hidden>
+    <b>Save this course's setup link somewhere safe</b> (email it to yourself). It holds the course key, which
+    is what lets you match check-ins to your roster. It's never stored on the server, so if you lose it, past
+    check-ins can't be matched. Opening the link also sets up the podium computer.
+    <div class="row" style="margin-top:.6rem">
+      <button id="copySetup">Copy setup link</button>
+      <button id="backedUp">I've saved it</button>
+      <span id="copyMsg" class="small muted"></span>
+    </div>
+  </div>
+
+  <!-- Start a session -->
+  <div id="startCard" class="card" hidden>
+    <h2>Take attendance</h2>
+    <div id="openNow" class="row" style="margin-bottom:12px" hidden></div>
+    <div class="row">
+      <label for="minutes">Accept check-ins for</label>
+      <input id="minutes" type="number" min="1" max="600" value="15" style="width:5rem"> <span class="muted">minutes</span>
+      <button id="startBtn" class="primary">Start session &amp; show QR</button>
+    </div>
+    <div id="startErr" class="err"></div>
+  </div>
+
+  <!-- Records -->
+  <div id="recordsCard" class="card" hidden>
+    <div class="row" style="margin-bottom:10px">
+      <h2 class="grow" style="margin:0">Attendance records</h2>
+      <button id="refreshBtn">Refresh</button>
+    </div>
+
+    <div style="border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:14px">
+      <div class="row">
+        <b>Roster</b>
+        <span id="rosterStatus" class="small muted grow">Not loaded. Load your Canvas gradebook export (CSV) to see names.</span>
+        <input type="file" id="rosterFile" accept=".csv,text/csv" hidden>
+        <button id="rosterBtn">Load roster CSV</button>
+        <button id="rosterForget" hidden>Forget roster</button>
+      </div>
+      <div id="rosterCols" class="row small" style="margin-top:10px" hidden>
+        <label>Name column <select id="nameCol"></select></label>
+        <label>Student ID column <select id="idCol"></select></label>
+        <label><input type="checkbox" id="rosterRemember"> Remember on this computer</label>
+      </div>
+      <p class="small muted" style="margin:.5rem 0 0">The roster stays on this computer. It is never uploaded.</p>
+    </div>
+
+    <table id="sessTable">
+      <thead><tr><th>Session</th><th class="num">Checked in</th><th class="num">Flagged</th><th class="num">On roster</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p id="noSessions" class="muted small" style="margin-top:10px" hidden>No sessions yet.</p>
+
+    <div class="row" style="margin-top:14px">
+      <label><input type="checkbox" id="countFlagged" checked> Count flagged check-ins as present</label>
+      <span class="grow"></span>
+      <button id="exportMatrix">Download all sessions (CSV)</button>
+      <button id="exportCanvas">Download for Canvas import (CSV)</button>
+    </div>
+    <div id="exportErr" class="err"></div>
+  </div>
+
+  <!-- One session in detail -->
+  <div id="detailCard" class="card" hidden>
+    <div class="row" style="margin-bottom:10px">
+      <h2 class="grow" id="detailTitle" style="margin:0"></h2>
+      <button id="exportSession">Download this session (CSV)</button>
+    </div>
+    <div class="row" style="margin-bottom:12px">
+      <input id="manualId" class="grow" list="rosterList" placeholder="Mark someone present: type a student ID (or a name, if the roster is loaded)" autocomplete="off">
+      <datalist id="rosterList"></datalist>
+      <button id="manualBtn">Mark present</button>
+    </div>
+    <div id="manualMsg" class="small" style="min-height:1.3em;margin-bottom:6px"></div>
+    <table id="detailTable">
+      <thead><tr><th>Student</th><th>Time</th><th>How</th><th>Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="small muted" style="margin-top:10px">
+      <b>Flags:</b> <i>via link</i> = a returning student used the camera-app link instead of the in-app scanner (could be a forwarded screenshot) ·
+      <i>shared device</i> = one phone checked in more than one student · <i>outside window</i> = scanned outside the session's open time ·
+      <i>clock</i> = phone's clock was off · <i>late sync</i> = sent more than a day after scanning.
+      “Not on roster” usually means a typo in the student's ID; mark them present by hand.
+    </p>
+  </div>
+</div>
+
+<!-- Projector view -->
+<div id="present">
+  <h1 id="presentTitle">Who is here?</h1>
+  <canvas id="qr"></canvas>
+  <div class="stats">
+    <div><span class="count num" id="liveCount">0</span> checked in</div>
+    <div class="muted num" id="timeLeft"></div>
+  </div>
+  <div class="howto">First time: point your phone's camera at the code. &nbsp;·&nbsp; After that: open WhoIsHere and tap <b>Scan</b>.</div>
+  <div class="controls">
+    <button id="plus5">+5 min</button>
+    <button id="closeNow" class="danger">Close check-in</button>
+    <button id="exitPresent">Exit (Esc)</button>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="common.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="vendor/supabase.js"></script>
+<script>
+(async function () {
+  const C = window.WIH_CONFIG, W = window.WIH, S = W.store;
+  const $ = (id) => document.getElementById(id);
+  const sb = window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY);
+  const STUDENT_URL = new URL("./", location.href).href;
+
+  // ---------- state ----------
+  let user = null, courses = [], course = null, sessions = [], checkins = [];
+  let keys = S.get("wih.keys", {});                 // courseId -> course key (this computer only)
+  let backedUp = S.get("wih.backedUp", {});
+  let roster = null;                                 // { header, rows, nameCol, idCol }
+  let rosterByPseudo = new Map(), rosterPseudoOf = new Map();
+  let selectedSession = null;
+
+  // A setup link (teach.html#c=<course>&k=<key>) installs the key on this computer.
+  if (location.hash) {
+    const p = new URLSearchParams(location.hash.slice(1));
+    if (p.get("c") && W.isCourseKey(p.get("k"))) {
+      keys[p.get("c")] = p.get("k"); S.set("wih.keys", keys);
+      backedUp[p.get("c")] = true; S.set("wih.backedUp", backedUp);
+      S.set("wih.lastCourse", p.get("c"));
+    }
+    history.replaceState(null, "", location.pathname);
+  }
+
+  // ---------- helpers ----------
+  const fmtDate = (d) => new Date(d).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  const fmtTime = (d) => new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const isOpen = (s) => new Date(s.closes_at) > new Date();
+  const FLAG = { via_link: "via link", shared_device: "shared device", outside_window: "outside window",
+                 clock: "clock", late_sync: "late sync" };
+  function el(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    if (props) for (const [k, v] of Object.entries(props)) {
+      if (k === "class") e.className = v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else e[k] = v;
+    }
+    for (const k of kids) if (k != null) e.append(k);
+    return e;
+  }
+  function download(name, rows) {
+    const csv = rows.map((r) => r.map((v) => {
+      const s = v == null ? "" : String(v);
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(",")).join("\r\n");
+    const a = el("a", { href: URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" })), download: name });
+    document.body.append(a); a.click(); a.remove();
+  }
+  function parseCSV(text) {
+    const rows = []; let row = [], f = "", q = false;
+    text = text.replace(/^﻿/, "");
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (q) {
+        if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
+        else f += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(f); f = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(f); rows.push(row); row = []; f = "";
+      } else f += c;
+    }
+    if (f !== "" || row.length) { row.push(f); rows.push(row); }
+    return rows.filter((r) => r.some((x) => x.trim() !== ""));
+  }
+  const sessLabel = (s) => fmtDate(s.opens_at) + ", " + fmtTime(s.opens_at);
+
+  // ---------- auth ----------
+  async function boot() {
+    const { data } = await sb.auth.getSession();
+    user = data.session ? data.session.user : null;
+    if (!user) { $("login").hidden = false; $("app").hidden = true; return; }
+    $("login").hidden = true; $("app").hidden = false;
+    $("whoami").textContent = user.email || "";
+    await loadCourses();
+  }
+  $("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("loginErr").textContent = "";
+    const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
+    if (error) { $("loginErr").textContent = error.message || "Couldn't sign in."; return; }
+    boot();
+  });
+  $("signOut").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
+
+  // ---------- courses + keys ----------
+  async function loadCourses() {
+    const { data, error } = await sb.from("course").select("id,name,key_check,created_at").order("created_at");
+    if (error) { alert("Couldn't load courses: " + error.message); return; }
+    courses = data;
+    const sel = $("courseSel"); sel.innerHTML = "";
+    for (const c of courses) sel.append(el("option", { value: c.id, textContent: c.name }));
+    sel.hidden = !courses.length;
+    $("noCourse").hidden = !!courses.length;
+    const last = S.get("wih.lastCourse", null);
+    const pick = courses.find((c) => c.id === last) || courses[courses.length - 1];
+    if (pick) { sel.value = pick.id; await selectCourse(pick.id); }
+    else { for (const id of ["startCard", "recordsCard", "detailCard", "keyMissing", "keyBackup"]) $(id).hidden = true; }
+  }
+  $("courseSel").addEventListener("change", (e) => selectCourse(e.target.value));
+  $("newCourseBtn").addEventListener("click", async () => {
+    const name = (prompt("Course name (e.g. MATH 16 Fall 2026):") || "").trim();
+    if (!name) return;
+    const key = W.newCourseKey();
+    const { data, error } = await sb.from("course").insert({ name, key_check: await W.keyCheck(key) }).select().single();
+    if (error) { alert("Couldn't create course: " + error.message); return; }
+    keys[data.id] = key; S.set("wih.keys", keys);
+    S.set("wih.lastCourse", data.id);
+    await loadCourses();
+  });
+
+  async function selectCourse(id) {
+    course = courses.find((c) => c.id === id);
+    S.set("wih.lastCourse", id);
+    selectedSession = null;
+    await refreshKeyUI();
+    loadRosterFromStorage();
+    await loadRecords();
+  }
+  const courseKey = () => course && keys[course.id];
+  async function refreshKeyUI() {
+    const k = courseKey();
+    let ok = !!k;
+    if (k && course.key_check && (await W.keyCheck(k)) !== course.key_check) ok = false;
+    $("keyMissing").hidden = ok;
+    $("keyBackup").hidden = !ok || !!backedUp[course.id];
+    $("startCard").hidden = !ok;
+    $("recordsCard").hidden = false;
+  }
+  $("keySave").addEventListener("click", async () => {
+    const k = $("keyPaste").value.trim();
+    if (!W.isCourseKey(k)) { $("keyErr").textContent = "That doesn't look like a course key."; return; }
+    if (course.key_check && (await W.keyCheck(k)) !== course.key_check) {
+      $("keyErr").textContent = "That key doesn't belong to this course."; return;
+    }
+    keys[course.id] = k; S.set("wih.keys", keys);
+    backedUp[course.id] = true; S.set("wih.backedUp", backedUp);
+    $("keyErr").textContent = ""; $("keyPaste").value = "";
+    await refreshKeyUI(); await rebuildRosterIndex(); renderRecords();
+  });
+  $("copySetup").addEventListener("click", async () => {
+    const link = new URL("teach.html", location.href).href + "#c=" + course.id + "&k=" + courseKey();
+    try { await navigator.clipboard.writeText(link); $("copyMsg").textContent = "Copied. Paste it into an email to yourself."; }
+    catch (e) { prompt("Copy this setup link:", link); }
+  });
+  $("backedUp").addEventListener("click", () => {
+    backedUp[course.id] = true; S.set("wih.backedUp", backedUp); $("keyBackup").hidden = true;
+  });
+
+  // ---------- records ----------
+  async function loadRecords() {
+    const { data, error } = await sb.from("session").select("id,code,opens_at,closes_at")
+      .eq("course_id", course.id).order("opens_at", { ascending: false });
+    if (error) { alert("Couldn't load sessions: " + error.message); return; }
+    sessions = data;
+    checkins = [];
+    const ids = sessions.map((s) => s.id);
+    for (let i = 0; i < ids.length; i += 40) {          // keep URLs short
+      const chunk = ids.slice(i, i + 40);
+      for (let from = 0; ; from += 1000) {               // the API returns at most 1000 rows per request
+        const { data: rows, error: e2 } = await sb.from("checkin")
+          .select("id,session_id,pseudonym,device,scanned_at,via,flags,status")
+          .in("session_id", chunk).order("scanned_at").range(from, from + 999);
+        if (e2) { alert("Couldn't load check-ins: " + e2.message); return; }
+        checkins.push(...rows);
+        if (rows.length < 1000) break;
+      }
+    }
+    renderRecords();
+  }
+  $("refreshBtn").addEventListener("click", loadRecords);
+
+  function renderRecords() {
+    const tb = $("sessTable").tBodies[0]; tb.innerHTML = "";
+    $("noSessions").hidden = sessions.length > 0;
+    const open = sessions.filter(isOpen);
+    const on = $("openNow"); on.innerHTML = ""; on.hidden = !open.length;
+    for (const s of open) {
+      on.append(el("span", { class: "pill open", textContent: "Open" }),
+        el("span", { textContent: "Session started " + fmtTime(s.opens_at) + ", open until " + fmtTime(s.closes_at) }),
+        el("button", { textContent: "Show QR", onclick: () => present(s) }));
+    }
+    for (const s of sessions) {
+      const cs = checkins.filter((c) => c.session_id === s.id);
+      const flagged = cs.filter((c) => c.status === "flagged").length;
+      const matched = roster ? cs.filter((c) => rosterByPseudo.has(c.pseudonym)).length : "—";
+      const tr = el("tr", { class: selectedSession === s.id ? "sel" : "" },
+        el("td", null, sessLabel(s), isOpen(s) ? el("span", { class: "pill open", textContent: "open", style: "margin-left:6px" }) : null),
+        el("td", { class: "num", textContent: cs.length }),
+        el("td", { class: "num", textContent: flagged || "" }),
+        el("td", { class: "num", textContent: matched }),
+        el("td", { style: "text-align:right; white-space:nowrap" },
+          el("button", { textContent: "View", onclick: () => { selectedSession = s.id; renderRecords(); } }), " ",
+          isOpen(s) && courseKey() ? el("button", { textContent: "Show QR", onclick: () => present(s) }) : null, " ",
+          el("button", { class: "danger", textContent: "Delete", title: "Delete this session and its check-ins",
+            onclick: () => deleteSession(s) })));
+      tb.append(tr);
+    }
+    renderDetail();
+  }
+  async function deleteSession(s) {
+    const n = checkins.filter((c) => c.session_id === s.id).length;
+    if (!confirm("Delete the session from " + sessLabel(s) + " and its " + n + " check-ins? This can't be undone.")) return;
+    const { error } = await sb.from("session").delete().eq("id", s.id);
+    if (error) { alert(error.message); return; }
+    if (selectedSession === s.id) selectedSession = null;
+    await loadRecords();
+  }
+
+  function studentLabel(pseudo) {
+    const r = rosterByPseudo.get(pseudo);
+    if (r) return r[roster.nameCol] + " (" + r[roster.idCol] + ")";
+    return null;
+  }
+  function renderDetail() {
+    const s = sessions.find((x) => x.id === selectedSession);
+    $("detailCard").hidden = !s;
+    if (!s) return;
+    $("detailTitle").textContent = sessLabel(s);
+    const tb = $("detailTable").tBodies[0]; tb.innerHTML = "";
+    const cs = checkins.filter((c) => c.session_id === s.id)
+      .map((c) => ({ c, name: studentLabel(c.pseudonym) }))
+      .sort((a, b) => (a.name == null) - (b.name == null) || String(a.name || "").localeCompare(String(b.name || "")) ||
+                      a.c.scanned_at.localeCompare(b.c.scanned_at));
+    for (const { c, name } of cs) {
+      const who = name != null ? el("span", { textContent: name })
+        : el("span", { class: "muted" }, roster ? "Not on roster " : "Code ", el("code", { textContent: c.pseudonym.slice(0, 8) }));
+      const status = el("td");
+      if (c.status === "ok") status.append(el("span", { class: "pill ok", textContent: "ok" }));
+      for (const f of c.flags) status.append(el("span", { class: "pill flag", textContent: FLAG[f] || f }));
+      tb.append(el("tr", null, el("td", null, who), el("td", { class: "num", textContent: fmtTime(c.scanned_at) }),
+        el("td", { textContent: c.via }), status));
+    }
+    if (!cs.length) tb.append(el("tr", null, el("td", { colSpan: 4, class: "muted", textContent: "No check-ins yet." })));
+  }
+
+  // Manual mark-present (for students without a phone).
+  $("manualBtn").addEventListener("click", async () => {
+    const msg = $("manualMsg"); msg.textContent = ""; msg.style.color = "";
+    if (!courseKey()) { msg.textContent = "This computer needs the course key first."; return; }
+    const v = $("manualId").value.trim(); if (!v) return;
+    const m = v.match(/\(([^()]+)\)\s*$/);                // "Name (ID)" from the roster list
+    const rawId = m ? m[1] : v;
+    const pseudo = await W.pseudonym(courseKey(), rawId);
+    const { error } = await sb.from("checkin").insert({ session_id: selectedSession, pseudonym: pseudo, via: "manual" });
+    if (error) {
+      msg.style.color = "var(--danger)";
+      msg.textContent = error.code === "23505" ? "Already checked in for this session." : error.message;
+      return;
+    }
+    const name = studentLabel(pseudo);
+    msg.style.color = "var(--accent-ink)";
+    msg.textContent = "Marked present: " + (name || "ID " + W.normalizeId(rawId) + (roster ? " (not on roster — check for a typo)" : ""));
+    $("manualId").value = "";
+    await loadRecords();
+  });
+
+  // ---------- roster (stays on this computer) ----------
+  $("rosterBtn").addEventListener("click", () => $("rosterFile").click());
+  $("rosterFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const rows = parseCSV(await f.text());
+    e.target.value = "";
+    if (rows.length < 2) { alert("That file doesn't look like a roster."); return; }
+    const header = rows[0].map((h) => h.trim());
+    const guess = (...names) => { for (const n of names) { const i = header.findIndex((h) => h.toLowerCase() === n); if (i >= 0) return i; } return -1; };
+    let nameCol = guess("student", "name", "student name");
+    let idCol = guess("sis user id", "student id", "sid", "id");
+    if (nameCol < 0) nameCol = 0;
+    if (idCol < 0) idCol = Math.min(1, header.length - 1);
+    roster = { header, rows: rows.slice(1), nameCol, idCol, remember: false };
+    $("rosterRemember").checked = false;
+    await rebuildRosterIndex(); renderRosterUI(); renderRecords();
+  });
+  function renderRosterUI() {
+    $("rosterForget").hidden = !roster;
+    $("rosterCols").hidden = !roster;
+    if (!roster) { $("rosterStatus").textContent = "Not loaded. Load your Canvas gradebook export (CSV) to see names."; $("rosterList").innerHTML = ""; return; }
+    for (const [id, col] of [["nameCol", roster.nameCol], ["idCol", roster.idCol]]) {
+      const s = $(id); s.innerHTML = "";
+      roster.header.forEach((h, i) => s.append(el("option", { value: i, textContent: h || "(column " + (i + 1) + ")" })));
+      s.value = col;
+    }
+    $("rosterStatus").textContent = rosterPseudoOf.size + " students loaded.";
+    const dl = $("rosterList"); dl.innerHTML = "";
+    for (const r of studentRows()) dl.append(el("option", { value: r[roster.nameCol] + " (" + r[roster.idCol] + ")" }));
+  }
+  // Canvas exports include a "Points Possible" row and sometimes a test student; skip rows without an ID.
+  const studentRows = () => roster ? roster.rows.filter((r) => W.normalizeId(r[roster.idCol]) && !/points possible/i.test(r[roster.nameCol] || "")) : [];
+  async function rebuildRosterIndex() {
+    rosterByPseudo = new Map(); rosterPseudoOf = new Map();
+    if (!roster || !courseKey()) return;
+    for (const r of studentRows()) {
+      const p = await W.pseudonym(courseKey(), r[roster.idCol]);
+      rosterByPseudo.set(p, r); rosterPseudoOf.set(r, p);
+    }
+  }
+  for (const id of ["nameCol", "idCol"]) $(id).addEventListener("change", async () => {
+    roster[id] = +$(id).value; saveRoster(); await rebuildRosterIndex(); renderRosterUI(); renderRecords();
+  });
+  $("rosterRemember").addEventListener("change", () => { roster.remember = $("rosterRemember").checked; saveRoster(); });
+  $("rosterForget").addEventListener("click", () => { S.del("wih.roster." + course.id); roster = null; rebuildRosterIndex(); renderRosterUI(); renderRecords(); });
+  function saveRoster() {
+    if (roster && roster.remember) S.set("wih.roster." + course.id, roster); else S.del("wih.roster." + course.id);
+  }
+  function loadRosterFromStorage() {
+    roster = S.get("wih.roster." + course.id, null);
+    $("rosterRemember").checked = !!(roster && roster.remember);
+    return rebuildRosterIndex().then(renderRosterUI);
+  }
+
+  // ---------- exports ----------
+  function presentValue(c) {
+    if (!c) return 0;
+    return c.status === "ok" || $("countFlagged").checked ? 1 : 0;
+  }
+  function needRoster() {
+    if (!roster) { $("exportErr").textContent = "Load your roster first."; return true; }
+    if (!courseKey()) { $("exportErr").textContent = "This computer needs the course key first."; return true; }
+    $("exportErr").textContent = ""; return false;
+  }
+  const chrono = () => sessions.slice().sort((a, b) => a.opens_at.localeCompare(b.opens_at));
+  const safeName = () => course.name.replace(/[^A-Za-z0-9]+/g, "_");
+  $("exportMatrix").addEventListener("click", () => {
+    if (needRoster()) return;
+    const ss = chrono();
+    const head = [roster.header[roster.nameCol], roster.header[roster.idCol], ...ss.map(sessLabel), "Total"];
+    const out = [head];
+    for (const r of studentRows()) {
+      const p = rosterPseudoOf.get(r);
+      const vals = ss.map((s) => presentValue(checkins.find((c) => c.session_id === s.id && c.pseudonym === p)));
+      out.push([r[roster.nameCol], r[roster.idCol], ...vals, vals.reduce((a, b) => a + b, 0)]);
+    }
+    const unknown = checkins.filter((c) => !rosterByPseudo.has(c.pseudonym));
+    const codes = [...new Set(unknown.map((c) => c.pseudonym))];
+    for (const p of codes) {
+      const vals = ss.map((s) => presentValue(checkins.find((c) => c.session_id === s.id && c.pseudonym === p)));
+      out.push(["(not on roster)", "code " + p.slice(0, 8), ...vals, vals.reduce((a, b) => a + b, 0)]);
+    }
+    download(safeName() + "_attendance.csv", out);
+  });
+  $("exportCanvas").addEventListener("click", () => {
+    if (needRoster()) return;
+    const canvasCols = ["Student", "ID", "SIS User ID", "SIS Login ID", "Section"]
+      .map((n) => roster.header.findIndex((h) => h.toLowerCase() === n.toLowerCase())).filter((i) => i >= 0);
+    const cols = canvasCols.length >= 2 ? canvasCols : [roster.nameCol, roster.idCol];
+    const title = "Attendance (WhoIsHere)";   // keep constant so re-imports update the same column
+    const out = [[...cols.map((i) => roster.header[i]), title]];
+    for (const r of studentRows()) {
+      const p = rosterPseudoOf.get(r);
+      const n = sessions.reduce((a, s) => a + presentValue(checkins.find((c) => c.session_id === s.id && c.pseudonym === p)), 0);
+      out.push([...cols.map((i) => r[i]), n]);
+    }
+    download(safeName() + "_canvas_import.csv", out);
+  });
+  $("exportSession").addEventListener("click", () => {
+    const s = sessions.find((x) => x.id === selectedSession); if (!s) return;
+    const out = [["Student", "Student ID", "Time", "How", "Status", "Flags"]];
+    for (const c of checkins.filter((x) => x.session_id === s.id)) {
+      const r = rosterByPseudo.get(c.pseudonym);
+      out.push([r ? r[roster.nameCol] : "(not on roster)", r ? r[roster.idCol] : "code " + c.pseudonym.slice(0, 8),
+                new Date(c.scanned_at).toLocaleString(), c.via, c.status, c.flags.map((f) => FLAG[f] || f).join("; ")]);
+    }
+    download(safeName() + "_" + new Date(s.opens_at).toISOString().slice(0, 10) + ".csv", out);
+  });
+
+  // ---------- start + projector view ----------
+  $("startBtn").addEventListener("click", async () => {
+    $("startErr").textContent = "";
+    const mins = Math.max(1, Math.min(600, parseInt($("minutes").value, 10) || 15));
+    const { data, error } = await sb.rpc("start_session", { p_course: course.id, p_minutes: mins });
+    if (error) { $("startErr").textContent = "Couldn't start: " + error.message; return; }
+    sessions.unshift(data);
+    renderRecords();
+    present(data);
+  });
+
+  let presenting = null, pollTimer = 0, clockTimer = 0;
+  function drawQR(text) {
+    const q = qrcode(0, "M"); q.addData(text); q.make();
+    const n = q.getModuleCount(), quiet = 3, total = n + quiet * 2;
+    const avail = Math.min(window.innerHeight * 0.68, window.innerWidth * 0.8);
+    const cell = Math.max(2, Math.floor(avail / total));
+    const cv = $("qr"); cv.width = cv.height = cell * total;
+    const ctx = cv.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height); ctx.fillStyle = "#000";
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++)
+      if (q.isDark(r, c)) ctx.fillRect((c + quiet) * cell, (r + quiet) * cell, cell, cell);
+  }
+  function present(s) {
+    presenting = s;
+    const url = STUDENT_URL + "#s=" + s.code + "&k=" + courseKey();
+    $("qr").dataset.url = url;
+    drawQR(url);
+    $("present").style.display = "flex";
+    if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    tickClock(); pollCount();
+    clearInterval(pollTimer); clearInterval(clockTimer);
+    pollTimer = setInterval(pollCount, 3000);
+    clockTimer = setInterval(tickClock, 1000);
+  }
+  function tickClock() {
+    if (!presenting) return;
+    const ms = new Date(presenting.closes_at) - new Date();
+    const closed = ms <= 0;
+    $("present").classList.toggle("closed", closed);
+    $("presentTitle").textContent = closed ? "Check-in closed" : "Who is here?";
+    $("qr").style.visibility = closed ? "hidden" : "visible";
+    const m = Math.floor(ms / 60000), sec = Math.floor((ms % 60000) / 1000);
+    $("timeLeft").textContent = closed ? "" : m + ":" + String(sec).padStart(2, "0") + " left";
+  }
+  async function pollCount() {
+    if (!presenting) return;
+    const { count } = await sb.from("checkin").select("id", { count: "exact", head: true }).eq("session_id", presenting.id);
+    if (count != null) $("liveCount").textContent = count;
+  }
+  async function setClose(minutes) {
+    const { data, error } = await sb.rpc("set_session_close", { p_session: presenting.id, p_minutes: minutes });
+    if (error) { alert(error.message); return; }
+    presenting = data;
+    const i = sessions.findIndex((x) => x.id === data.id); if (i >= 0) sessions[i] = data;
+    tickClock();
+  }
+  $("plus5").addEventListener("click", () => {
+    const left = Math.max(0, Math.ceil((new Date(presenting.closes_at) - new Date()) / 60000));
+    setClose(left + 5);
+  });
+  $("closeNow").addEventListener("click", () => setClose(0));
+  function exitPresent() {
+    presenting = null; clearInterval(pollTimer); clearInterval(clockTimer);
+    $("present").style.display = "none";
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    loadRecords();
+  }
+  $("exitPresent").addEventListener("click", exitPresent);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && presenting) exitPresent(); });
+  window.addEventListener("resize", () => { if (presenting) drawQR($("qr").dataset.url); });
+
+  boot();
+})();
+</script>
+</body>
+</html>
