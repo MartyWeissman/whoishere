@@ -55,6 +55,10 @@
   #present .controls { position:fixed; bottom:12px; right:12px; display:flex; gap:8px; opacity:.35; transition:opacity .2s; }
   #present .controls:hover, #present .controls:focus-within { opacity:1; }
   #present.closed h1 { color:var(--muted); }
+  #login a, #newPw a { color:var(--accent-ink); }
+  #newPw { max-width:380px; margin:10vh auto; }
+  #newPw input { width:100%; margin:.25rem 0 .75rem; }
+  .okmsg { color:var(--accent-ink); font-size:.9rem; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -71,6 +75,22 @@
     <div id="loginErr" class="err"></div>
     <button class="primary" type="submit" style="width:100%">Sign in</button>
   </form>
+  <p class="small" style="margin:.9rem 0 0; text-align:center"><a href="#" id="forgotLink">Forgot password?</a></p>
+  <div id="loginMsg" class="okmsg" style="margin-top:.5rem" hidden></div>
+</div>
+
+<!-- Choose a new password (after opening the emailed reset link) -->
+<div id="newPw" class="card" hidden>
+  <div class="brand" style="margin-bottom:16px">Who<b>Is</b>Here <span class="muted small">· instructor</span></div>
+  <h2>Choose a new password</h2>
+  <form id="newPwForm">
+    <label for="newPw1">New password</label>
+    <input id="newPw1" type="password" autocomplete="new-password" required>
+    <label for="newPw2">Type it again</label>
+    <input id="newPw2" type="password" autocomplete="new-password" required>
+    <div id="newPwErr" class="err"></div>
+    <button class="primary" type="submit" style="width:100%">Save new password</button>
+  </form>
 </div>
 
 <div id="app" class="wrap" hidden>
@@ -81,6 +101,10 @@
     <span class="small muted" id="whoami"></span>
     <button id="signOut">Sign out</button>
   </header>
+
+  <div id="pwChanged" class="notice" style="background:#e6f5ed;border-color:#bfe3cf" hidden>
+    <b>Password updated.</b> Use it the next time you sign in.
+  </div>
 
   <div id="noCourse" class="card" hidden>
     <h2>Create your first course</h2>
@@ -207,6 +231,11 @@
 (async function () {
   const C = window.WIH_CONFIG, W = window.WIH, S = W.store;
   const $ = (id) => document.getElementById(id);
+  // A password-reset email link arrives as teach.html#access_token=…&type=recovery (or #error=… if it
+  // expired). Note that before the Supabase client reads it, and keep it apart from course setup links.
+  const authHash = /(^|[#&])(access_token|error_description|error)=/.test(location.hash);
+  let recovering = /(^|[#&])type=recovery(&|$)/.test(location.hash);
+  const resetLinkBad = authHash && /(^|[#&])error/.test(location.hash);
   const sb = window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY);
   const STUDENT_URL = new URL("./", location.href).href;
 
@@ -219,7 +248,7 @@
   let selectedSession = null;
 
   // A setup link (teach.html#c=<course>&k=<key>) installs the key on this computer.
-  if (location.hash) {
+  if (location.hash && !authHash) {
     const p = new URLSearchParams(location.hash.slice(1));
     if (p.get("c") && W.isCourseKey(p.get("k"))) {
       keys[p.get("c")] = p.get("k"); S.set("wih.keys", keys);
@@ -274,8 +303,15 @@
   // ---------- auth ----------
   async function boot() {
     const { data } = await sb.auth.getSession();
+    if (authHash) history.replaceState(null, "", location.pathname);
     user = data.session ? data.session.user : null;
-    if (!user) { $("login").hidden = false; $("app").hidden = true; return; }
+    if (recovering && user) { $("login").hidden = true; $("app").hidden = true; $("newPw").hidden = false; $("newPw1").focus(); return; }
+    $("newPw").hidden = true;
+    if (!user) {
+      $("login").hidden = false; $("app").hidden = true;
+      if (resetLinkBad) showLoginMsg("", "That reset link has expired or was already used. Type your email and click “Forgot password?” to get a new one.");
+      return;
+    }
     $("login").hidden = true; $("app").hidden = false;
     $("whoami").textContent = user.email || "";
     await loadCourses();
@@ -285,6 +321,41 @@
     $("loginErr").textContent = "";
     const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
     if (error) { $("loginErr").textContent = error.message || "Couldn't sign in."; return; }
+    boot();
+  });
+  function showLoginMsg(ok, err) {
+    $("loginMsg").textContent = ok; $("loginMsg").hidden = !ok;
+    $("loginErr").textContent = err || "";
+  }
+  $("forgotLink").addEventListener("click", async (e) => {
+    e.preventDefault();
+    const email = $("email").value.trim();
+    if (!email || !$("email").checkValidity()) {
+      showLoginMsg("", "Type your email above, then click “Forgot password?”."); $("email").focus(); return;
+    }
+    showLoginMsg("Sending…");
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+    if (error) {
+      const msg = /rate|too many|security purposes/i.test(error.message || "")
+        ? "Too many reset emails just now. Wait a little while and try again."
+        : (error.message || "Couldn't send the reset email.");
+      showLoginMsg("", msg); return;
+    }
+    showLoginMsg("Check your email for a reset link from Supabase (look in spam too). Open it on any device to choose a new password.");
+  });
+  $("newPwForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const p1 = $("newPw1").value, p2 = $("newPw2").value;
+    $("newPwErr").textContent = "";
+    if (p1.length < 8) { $("newPwErr").textContent = "Use at least 8 characters."; return; }
+    if (p1 !== p2) { $("newPwErr").textContent = "The two passwords don't match."; return; }
+    const { error } = await sb.auth.updateUser({ password: p1 });
+    if (error) {
+      $("newPwErr").textContent = /different|same/i.test(error.message || "")
+        ? "That's your current password. Pick a new one." : (error.message || "Couldn't save the password.");
+      return;
+    }
+    recovering = false; $("pwChanged").hidden = false;
     boot();
   });
   $("signOut").addEventListener("click", async () => { await sb.auth.signOut(); location.reload(); });
