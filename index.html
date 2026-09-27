@@ -87,11 +87,6 @@
     </div>
     <button id="scanBtn" class="primary">Scan to mark present</button>
     <div id="scanErr" class="err" style="text-align:center"></div>
-    <div id="linkTip" class="tip" hidden>
-      <b>Next time:</b> open WhoIsHere from your home screen and tap <b>Scan</b>. Check-ins that come
-      through your phone's camera app (a link) are marked for your instructor to review.
-    </div>
-    <div id="installTip" class="tip" hidden></div>
     <div class="spacer"></div>
     <div id="recent" class="recent"></div>
     <div class="who">
@@ -144,16 +139,6 @@
   function renderHome() {
     const masked = studentId.length > 3 ? "•••" + studentId.slice(-3) : studentId;
     $("whoText").textContent = "Checking in as " + masked;
-    const done = queue.length > 0;
-    const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
-    const tip = $("installTip");
-    if (!standalone && done) {
-      const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
-      tip.innerHTML = ios
-        ? "<b>Add WhoIsHere to your home screen:</b> tap the Share button, then “Add to Home Screen.”"
-        : "<b>Add WhoIsHere to your home screen:</b> open the browser menu (⋮), then “Add to Home screen” or “Install app.”";
-      tip.hidden = false;
-    } else tip.hidden = true;
     renderRecent();
   }
   const LABEL = { ok: "Present", flagged: "Recorded (for review)", duplicate: "Already marked",
@@ -217,8 +202,6 @@
     queue.unshift(r);
     queue = queue.slice(0, 50);
     S.set("wih.queue", queue);
-    // Returning students who used the camera-app link get a nudge toward the in-app scanner.
-    $("linkTip").hidden = !(via === "link" && !isFirstSetup);
     showRecord(r);
     renderHome();
     flush();
@@ -241,7 +224,10 @@
           if (!resp.ok) continue;          // server trouble: keep it and try again later
           res = await resp.json();
         } catch (e) { break; }             // offline: stop and wait for the next chance
-        r.status = res.status || "pending";
+        // The phone's camera app (a link) is the normal way to check in, so a "via_link" flag alone
+        // isn't a concern: treat it as a plain check-in.
+        const flags = Array.isArray(res.flags) ? res.flags.filter((f) => f !== "via_link") : [];
+        r.status = res.status === "flagged" && !flags.length ? "ok" : (res.status || "pending");
         if (res.reason) r.reason = res.reason;
         S.set("wih.queue", queue);
         if (r === queue[0] && !$("home").hidden) showRecord(r);

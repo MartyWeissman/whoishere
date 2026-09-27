@@ -199,8 +199,7 @@
       <tbody></tbody>
     </table>
     <p class="small muted" style="margin-top:10px">
-      <b>Flags:</b> <i>via link</i> = a returning student used the camera-app link instead of the in-app scanner (could be a forwarded screenshot) ·
-      <i>shared device</i> = one phone checked in more than one student · <i>outside window</i> = scanned outside the session's open time ·
+      <b>Flags:</b>       <i>shared device</i> = one phone checked in more than one student · <i>outside window</i> = scanned outside the session's open time ·
       <i>clock</i> = phone's clock was off · <i>late sync</i> = sent more than a day after scanning.
       “Not on roster” usually means a typo in the student's ID; mark them present by hand.
     </p>
@@ -215,7 +214,7 @@
     <div><span class="count num" id="liveCount">0</span> checked in</div>
     <div class="muted num" id="timeLeft"></div>
   </div>
-  <div class="howto">First time: point your phone's camera at the code. &nbsp;·&nbsp; After that: open WhoIsHere and tap <b>Scan</b>.</div>
+  <div class="howto">Point your phone's camera at the code and tap the link.</div>
   <div class="controls">
     <button id="plus5">+5 min</button>
     <button id="closeNow" class="danger">Close check-in</button>
@@ -439,6 +438,10 @@
           .select("id,session_id,pseudonym,device,scanned_at,via,flags,status")
           .in("session_id", chunk).order("scanned_at").range(from, from + 999);
         if (e2) { alert("Couldn't load check-ins: " + e2.message); return; }
+        for (const c of rows) {        // camera-app links are the normal route now: "via_link" alone isn't a flag
+          c.flags = (c.flags || []).filter((f) => f !== "via_link");
+          if (c.status === "flagged" && !c.flags.length) c.status = "ok";
+        }
         checkins.push(...rows);
         if (rows.length < 1000) break;
       }
