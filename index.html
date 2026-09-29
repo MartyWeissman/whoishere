@@ -46,16 +46,11 @@
   .who { font-size:.9rem; color:var(--muted); margin-top:.75rem; text-align:center; }
   .recent { margin-top:28px; font-size:.85rem; color:var(--muted); }
   .recent div { display:flex; justify-content:space-between; border-top:1px solid var(--line); padding:6px 0; }
-  /* Scanner */
-  #scanner { position:fixed; inset:0; background:#000; display:none; z-index:10; }
-  #scanner video { width:100%; height:100%; object-fit:cover; }
-  #scanner .frame { position:absolute; left:50%; top:45%; width:min(70vw, 320px); aspect-ratio:1;
-                    transform:translate(-50%,-50%); border:3px solid rgba(255,255,255,.9); border-radius:16px;
-                    box-shadow:0 0 0 100vmax rgba(0,0,0,.35); }
-  #scanner .hint { position:absolute; left:0; right:0; top:max(24px, env(safe-area-inset-top)); text-align:center;
-                   color:#fff; font-weight:600; font-size:1.05rem; padding:0 24px; }
-  #scanner .cancel { position:absolute; left:50%; bottom:max(32px, env(safe-area-inset-bottom)); transform:translateX(-50%);
-                     background:rgba(255,255,255,.95); color:#111; border:0; border-radius:999px; padding:.8rem 2rem; font-weight:600; }
+  .howto { background:var(--wash); border:1px solid var(--line); border-radius:12px; padding:20px 18px;
+           margin-top:8px; text-align:center; }
+  .howto .icon { font-size:2.4rem; line-height:1; margin-bottom:.5rem; }
+  .howto p { margin:0 0 .5rem; }
+  .howto p:last-child { margin:0; }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -85,8 +80,11 @@
       <div id="resultBig" class="big"></div>
       <div id="resultSmall" class="muted"></div>
     </div>
-    <button id="scanBtn" class="primary">Scan to mark present</button>
-    <div id="scanErr" class="err" style="text-align:center"></div>
+    <div id="howto" class="howto">
+      <div class="icon" aria-hidden="true">📷</div>
+      <p><b>To check in:</b> in class, point your phone's regular camera at the QR code on the screen, then tap the link that pops up.</p>
+      <p class="small muted">That's all. There's nothing to tap on this page.</p>
+    </div>
     <div class="spacer"></div>
     <div id="recent" class="recent"></div>
     <div class="who">
@@ -96,17 +94,8 @@
   </section>
 </main>
 
-<div id="scanner">
-  <video id="video" playsinline muted></video>
-  <div class="frame"></div>
-  <div class="hint">Point at the “Who is here?” code on the screen</div>
-  <button class="cancel" id="cancelScan">Cancel</button>
-</div>
-<canvas id="canvas" hidden></canvas>
-
 <script src="config.js"></script>
 <script src="common.js"></script>
-<script src="vendor/jsQR.js" defer></script>
 <script>
 (function () {
   const C = window.WIH_CONFIG, W = window.WIH, S = W.store;
@@ -158,6 +147,7 @@
     }
   }
   function showResult(kind, icon, big, small) {
+    $("howto").hidden = true;
     $("result").hidden = false;
     $("result").className = "result " + kind;
     $("resultIcon").textContent = icon;
@@ -165,10 +155,10 @@
     $("resultSmall").textContent = small || "";
   }
   function showRecord(r) {
-    if (r.status === "ok") showResult("ok", "✓", "Present", "You're checked in. Phone away!");
-    else if (r.status === "pending") showResult("ok", "✓", "Present", "Saved on your phone — it'll send automatically when you're online.");
+    if (r.status === "ok") showResult("ok", "✓", "Present", "You're checked in. Nothing else to do. Phone away!");
+    else if (r.status === "pending") showResult("ok", "✓", "Present", "Saved on your phone. It'll send automatically when you're online. Nothing else to do.");
     else if (r.status === "flagged") showResult("warn", "✓", "Recorded", "Your check-in was saved and marked for your instructor to review.");
-    else if (r.status === "duplicate") showResult("ok", "✓", "Already marked", "You're already checked in for this class.");
+    else if (r.status === "duplicate") showResult("ok", "✓", "Already marked", "You're already checked in for this class. Nothing else to do.");
     else showResult("bad", "✕", "Not accepted", r.reason === "unknown_session"
       ? "That code isn't an active WhoIsHere session." : "Something was wrong with that code. Ask your instructor.");
   }
@@ -186,12 +176,12 @@
   });
   $("changeId").addEventListener("click", () => {
     $("id1").value = ""; $("id2").value = "";
+    $("result").hidden = true; $("howto").hidden = false;
     show("setup");
   });
 
   // ---------- recording + sending ----------
   async function record(code, key, via, isFirstSetup) {
-    $("scanErr").textContent = "";
     const existing = queue.find((r) => r.code === code && r.id === studentId && r.status !== "rejected");
     if (existing) { showRecord(existing.status === "pending" ? existing : { status: "duplicate" }); return; }
     const r = {
@@ -240,55 +230,6 @@
   window.addEventListener("online", flush);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) flush(); });
   setInterval(() => { if (queue.some((q) => q.status === "pending")) flush(); }, 15000);
-
-  // ---------- scanner (live camera only; no photo uploads) ----------
-  let stream = null, raf = 0;
-  async function startScan() {
-    $("scanErr").textContent = "";
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      $("scanErr").textContent = "This browser can't use the camera. Try Safari (iPhone) or Chrome (Android)."; return;
-    }
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-    } catch (e) {
-      $("scanErr").textContent = e && e.name === "NotAllowedError"
-        ? "Camera access is blocked. Allow the camera for this site in your browser settings, then try again."
-        : "Couldn't start the camera.";
-      return;
-    }
-    const v = $("video");
-    v.srcObject = stream;
-    $("scanner").style.display = "block";
-    await v.play().catch(() => {});
-    const canvas = $("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
-    const tick = () => {
-      if (!stream) return;
-      if (v.readyState >= 2 && v.videoWidth && window.jsQR) {
-        const scale = Math.min(1, 720 / Math.max(v.videoWidth, v.videoHeight));
-        canvas.width = Math.round(v.videoWidth * scale); canvas.height = Math.round(v.videoHeight * scale);
-        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-        const parsed = hit && W.parseCheckinUrl(hit.data);
-        if (parsed) {
-          stopScan();
-          if (navigator.vibrate) navigator.vibrate(60);
-          record(parsed.code, parsed.key, "scan", false);
-          return;
-        }
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-  }
-  function stopScan() {
-    cancelAnimationFrame(raf);
-    if (stream) stream.getTracks().forEach((t) => t.stop());
-    stream = null;
-    $("scanner").style.display = "none";
-  }
-  $("scanBtn").addEventListener("click", startScan);
-  $("cancelScan").addEventListener("click", stopScan);
 
   // ---------- start ----------
   if (!studentId) show("setup");

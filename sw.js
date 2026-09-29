@@ -1,7 +1,7 @@
 // Service worker: lets the student page open and record check-ins with no connection.
 // Files are fetched fresh whenever online, so edits show up without changing anything here.
-const VERSION = "wih-v1";
-const SHELL = ["./", "./index.html", "./config.js", "./common.js", "./vendor/jsQR.js",
+const VERSION = "wih-v2";
+const SHELL = ["./", "./index.html", "./config.js", "./common.js",
                "./manifest.webmanifest", "./icon.svg", "./icon-180.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {

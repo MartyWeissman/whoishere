@@ -177,7 +177,6 @@
       <label><input type="checkbox" id="countFlagged" checked> Count flagged check-ins as present</label>
       <span class="grow"></span>
       <button id="exportMatrix">Download all sessions (CSV)</button>
-      <button id="exportCanvas">Download for Canvas import (CSV)</button>
     </div>
     <div id="exportErr" class="err"></div>
   </div>
@@ -194,6 +193,18 @@
       <button id="manualBtn">Mark present</button>
     </div>
     <div id="manualMsg" class="small" style="min-height:1.3em;margin-bottom:6px"></div>
+    <div id="canvasBox" style="border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:14px">
+      <div class="row">
+        <b>Canvas upload</b>
+        <label for="canvasName">New assignment name</label>
+        <input id="canvasName" class="grow" style="max-width:20rem" autocomplete="off" spellcheck="false">
+        <button id="exportCanvas">Download for Canvas upload</button>
+      </div>
+      <p id="canvasMsg" class="small" style="margin:.5rem 0 0"></p>
+      <p class="small muted" style="margin:.5rem 0 0">Makes a new 1-point assignment: 1 = present, 0 = absent. Needs your Canvas gradebook
+        export loaded as the roster (Canvas → Grades → Export → CSV). Then upload the file in Canvas → Grades → Import.
+        Don't open and re-save it in Excel first: Excel can drop leading zeros from IDs, and Canvas then can't find the students.</p>
+    </div>
     <table id="detailTable">
       <thead><tr><th>Student</th><th>Time</th><th>How</th><th>Status</th></tr></thead>
       <tbody></tbody>
@@ -271,12 +282,12 @@
     for (const k of kids) if (k != null) e.append(k);
     return e;
   }
-  function download(name, rows) {
+  function download(name, rows, bom = true) {
     const csv = rows.map((r) => r.map((v) => {
       const s = v == null ? "" : String(v);
       return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }).join(",")).join("\r\n");
-    const a = el("a", { href: URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" })), download: name });
+    const a = el("a", { href: URL.createObjectURL(new Blob([(bom ? "﻿" : "") + csv], { type: "text/csv" })), download: name });
     document.body.append(a); a.click(); a.remove();
   }
   function parseCSV(text) {
@@ -492,10 +503,22 @@
     if (r) return r[roster.nameCol] + " (" + r[roster.idCol] + ")";
     return null;
   }
+  // Attendance_Sep_28 (no slashes). A second session on the same day gets _2, and so on.
+  function defaultAssignmentName(s) {
+    const d = new Date(s.opens_at), day = d.toDateString();
+    const same = chrono().filter((x) => new Date(x.opens_at).toDateString() === day);
+    const base = "Attendance_" + d.toLocaleDateString("en-US", { month: "short" }) + "_" + d.getDate();
+    const i = same.findIndex((x) => x.id === s.id);
+    return i > 0 ? base + "_" + (i + 1) : base;
+  }
+  let canvasNameFor = null;
   function renderDetail() {
     const s = sessions.find((x) => x.id === selectedSession);
     $("detailCard").hidden = !s;
     if (!s) return;
+    if (canvasNameFor !== s.id) {
+      canvasNameFor = s.id; $("canvasName").value = defaultAssignmentName(s); $("canvasMsg").textContent = "";
+    }
     $("detailTitle").textContent = sessLabel(s);
     const tb = $("detailTable").tBodies[0]; tb.innerHTML = "";
     const cs = checkins.filter((c) => c.session_id === s.id)
@@ -541,17 +564,31 @@
     const f = e.target.files[0]; if (!f) return;
     const rows = parseCSV(await f.text());
     e.target.value = "";
-    if (rows.length < 2) { alert("That file doesn't look like a roster."); return; }
-    const header = rows[0].map((h) => h.trim());
+    // The header is the first row that names a Student/Name column (skips any blank rows above it).
+    const hi = Math.max(0, rows.findIndex((r) => r.some((h) => /^(student|name|student name)$/i.test(h.trim()))));
+    if (rows.length - hi < 2) { alert("That file doesn't look like a roster."); return; }
+    const prepped = prepRoster(rows[hi].map((h) => h.trim()), rows.slice(hi + 1));
+    const header = prepped.header;
     const guess = (...names) => { for (const n of names) { const i = header.findIndex((h) => h.toLowerCase() === n); if (i >= 0) return i; } return -1; };
     let nameCol = guess("student", "name", "student name");
     let idCol = guess("sis user id", "student id", "sid", "id");
     if (nameCol < 0) nameCol = 0;
     if (idCol < 0) idCol = Math.min(1, header.length - 1);
-    roster = { header, rows: rows.slice(1), nameCol, idCol, remember: false };
+    roster = { header, rows: prepped.rows, nameCol, idCol, canvas: prepped.canvas, remember: false };
     $("rosterRemember").checked = false;
     await rebuildRosterIndex(); renderRosterUI(); renderRecords();
   });
+  // A Canvas gradebook export starts Student, ID, SIS User ID, SIS Login ID, [Root Account,] Section, then one
+  // column per assignment. Keep the identifying columns exactly as exported (Canvas needs them all, in that order,
+  // to find each student on upload) and drop the grades: they aren't needed, and this way they're never stored.
+  function prepRoster(header, rows) {
+    const lc = header.map((h) => h.toLowerCase());
+    const sec = lc.indexOf("section");
+    const canvas = lc.includes("student") && lc.includes("id") && sec >= 0;
+    if (!canvas) return { header, rows, canvas: false };
+    const n = sec + 1;
+    return { header: header.slice(0, n), rows: rows.map((r) => header.slice(0, n).map((_, i) => r[i] == null ? "" : r[i])), canvas: true };
+  }
   function renderRosterUI() {
     $("rosterForget").hidden = !roster;
     $("rosterCols").hidden = !roster;
@@ -585,6 +622,7 @@
   }
   function loadRosterFromStorage() {
     roster = S.get("wih.roster." + course.id, null);
+    if (roster && roster.canvas === undefined) Object.assign(roster, prepRoster(roster.header, roster.rows));   // saved by an older version
     $("rosterRemember").checked = !!(roster && roster.remember);
     return rebuildRosterIndex().then(renderRosterUI);
   }
@@ -620,18 +658,36 @@
     download(safeName() + "_attendance.csv", out);
   });
   $("exportCanvas").addEventListener("click", () => {
-    if (needRoster()) return;
-    const canvasCols = ["Student", "ID", "SIS User ID", "SIS Login ID", "Section"]
-      .map((n) => roster.header.findIndex((h) => h.toLowerCase() === n.toLowerCase())).filter((i) => i >= 0);
-    const cols = canvasCols.length >= 2 ? canvasCols : [roster.nameCol, roster.idCol];
-    const title = "Attendance (WhoIsHere)";   // keep constant so re-imports update the same column
-    const out = [[...cols.map((i) => roster.header[i]), title]];
+    const msg = $("canvasMsg");
+    const fail = (t) => { msg.style.color = "var(--danger)"; msg.textContent = t; };
+    const s = sessions.find((x) => x.id === selectedSession); if (!s) return;
+    if (!roster) return fail("Load your Canvas gradebook export first (Canvas → Grades → Export → CSV), with “Load roster CSV” above.");
+    if (!roster.canvas) return fail("The loaded roster isn't a Canvas gradebook export (it needs Student, ID and Section columns). " +
+      "In Canvas: Grades → Export → CSV, then load that file with “Load roster CSV” above.");
+    if (!courseKey()) return fail("This computer needs the course key first.");
+    const name = $("canvasName").value.trim();
+    if (!name) return fail("Type a name for the new assignment.");
+    if (/[()]/.test(name)) return fail("Leave parentheses out of the name: Canvas reads “(…)” as an assignment number.");
+    if (/[,"]/.test(name)) return fail("Leave commas and quotation marks out of the name.");
+
+    const cs = checkins.filter((c) => c.session_id === s.id);
+    const pad = (r) => roster.header.map((_, i) => r[i] == null ? "" : r[i]);
+    const out = [[...roster.header, name]];
+    const pts = roster.rows.find((r) => /^\s*points possible\s*$/i.test(r[roster.nameCol] || ""));
+    out.push([...(pts ? pad(pts) : roster.header.map((_, i) => i === roster.nameCol ? "    Points Possible" : "")), "1"]);
+    let present = 0, total = 0;
     for (const r of studentRows()) {
-      const p = rosterPseudoOf.get(r);
-      const n = sessions.reduce((a, s) => a + presentValue(checkins.find((c) => c.session_id === s.id && c.pseudonym === p)), 0);
-      out.push([...cols.map((i) => r[i]), n]);
+      const v = presentValue(cs.find((c) => c.pseudonym === rosterPseudoOf.get(r)));
+      present += v; total++;
+      out.push([...pad(r), v]);
     }
-    download(safeName() + "_canvas_import.csv", out);
+    const file = "Grades-" + safeName() + ".csv";
+    download(file, out, false);
+    const unmatched = cs.filter((c) => !rosterByPseudo.has(c.pseudonym)).length;
+    msg.style.color = "var(--accent-ink)";
+    msg.textContent = "Downloaded " + file + ": " + present + " present, " + (total - present) + " absent, out of " + total + " students." +
+      (unmatched ? " " + unmatched + (unmatched === 1 ? " check-in doesn't" : " check-ins don't") + " match anyone in the gradebook " +
+        "(usually a typo in the ID the student typed). They're listed as “Not on roster” below and count as absent until you mark them present." : "");
   });
   $("exportSession").addEventListener("click", () => {
     const s = sessions.find((x) => x.id === selectedSession); if (!s) return;
